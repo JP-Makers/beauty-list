@@ -8,6 +8,7 @@ name = "bl"
 path = "src/main.rs"
 
 [dependencies]
+chrono = "0.4.43"
 clap = { version = "4.5.55", features = ["derive"] }
 owo-colors = "4.2.3"
 strum = { version = "0.27.2", features = ["derive"] }
