@@ -2,6 +2,8 @@ use chrono::{DateTime, Local};
 use clap::Parser;
 use owo_colors::OwoColorize;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use strum::Display;
 use tabled::settings::object::{Columns, Rows};
@@ -9,18 +11,24 @@ use tabled::settings::{Color, Style};
 use tabled::{Table, Tabled};
 #[derive(Debug, Display)]
 enum EntryType {
-    File,
-    Dir,
+    file,
+    dir,
 }
 
 #[derive(Debug, Tabled)]
 struct FileEntry {
+    #[tabled(rename = "No")]
+    no: usize,
     #[tabled(rename = "Name")]
     name: String,
     #[tabled(rename = "Type")]
     e_type: EntryType,
     #[tabled(rename = "Size")]
     len_bytes: String,
+    #[tabled(rename = "Mode")]
+    mode: String,
+    #[tabled(rename = "Octal")]
+    octal: String,
     #[tabled(rename = "Modified")]
     modified: String,
 }
@@ -43,17 +51,19 @@ fn main() {
             table.with(Style::rounded());
 
             table.modify(Rows::first(), Color::FG_BRIGHT_CYAN);
-            table.modify(Columns::new(1..=1), Color::FG_MAGENTA);
-            table.modify(Columns::new(2..=2), Color::FG_YELLOW);
-            table.modify(Columns::new(3..=3), Color::FG_CYAN);
+            table.modify(Columns::new(2..=2), Color::FG_MAGENTA);
+            table.modify(Columns::new(3..=3), Color::FG_YELLOW);
+            table.modify(Columns::new(4..=4), Color::FG_WHITE);
+            table.modify(Columns::new(5..=5), Color::FG_CYAN);
+            table.modify(Columns::new(6..=6), Color::FG_CYAN);
 
             for (i, entry) in get_files.iter().enumerate() {
                 match entry.e_type {
-                    EntryType::Dir => {
-                        table.modify((i + 1, 0), Color::FG_BRIGHT_BLUE);
+                    EntryType::dir => {
+                        table.modify((i + 1, 1), Color::FG_BRIGHT_BLUE);
                     }
-                    EntryType::File => {
-                        table.modify((i + 1, 0), Color::FG_GREEN);
+                    EntryType::file => {
+                        table.modify((i + 1, 1), Color::FG_GREEN);
                     }
                 }
             }
@@ -77,8 +87,8 @@ fn get_files(path: &Path) -> Vec<FileEntry> {
     }
 
     data.sort_by(|a, b| {
-        let a_is_dir = matches!(a.e_type, EntryType::Dir);
-        let b_is_dir = matches!(b.e_type, EntryType::Dir);
+        let a_is_dir = matches!(a.e_type, EntryType::dir);
+        let b_is_dir = matches!(b.e_type, EntryType::dir);
         match (a_is_dir, b_is_dir) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
@@ -86,13 +96,17 @@ fn get_files(path: &Path) -> Vec<FileEntry> {
         }
     });
 
+    for (i, entry) in data.iter_mut().enumerate() {
+        entry.no = i + 1;
+    }
+
     data
 }
 
 fn map_data(file: fs::DirEntry, data: &mut Vec<FileEntry>) {
     if let Ok(meta) = fs::metadata(&file.path()) {
         let size_str = if meta.is_dir() {
-            "".to_string()
+            format_bytes(meta.len())
         } else {
             format_bytes(meta.len())
         };
@@ -110,17 +124,55 @@ fn map_data(file: fs::DirEntry, data: &mut Vec<FileEntry>) {
             .into_string()
             .unwrap_or("unknown name".into());
 
+        #[cfg(unix)]
+        let (mode_str, octal_str) = {
+            let mode = meta.permissions().mode();
+            let is_dir = meta.is_dir();
+            let is_symlink = meta.file_type().is_symlink();
+            let octal = mode & 0o777;
+            (
+                format_mode_str(mode, is_dir, is_symlink),
+                format!("{:03o}", octal),
+            )
+        };
+        #[cfg(not(unix))]
+        let (mode_str, octal_str) = ("unknown".to_string(), "000".to_string());
+
         data.push(FileEntry {
+            no: 0,
             name: file_name,
             e_type: if meta.is_dir() {
-                EntryType::Dir
+                EntryType::dir
             } else {
-                EntryType::File
+                EntryType::file
             },
             len_bytes: size_str,
+            mode: mode_str,
+            octal: octal_str,
             modified: mod_time,
         });
     }
+}
+
+fn format_mode_str(mode: u32, is_dir: bool, is_symlink: bool) -> String {
+    let mut s = String::with_capacity(10);
+    s.push(if is_dir {
+        'd'
+    } else if is_symlink {
+        'l'
+    } else {
+        '-'
+    });
+    s.push(if mode & 0o0400 != 0 { 'r' } else { '-' });
+    s.push(if mode & 0o0200 != 0 { 'w' } else { '-' });
+    s.push(if mode & 0o0100 != 0 { 'x' } else { '-' });
+    s.push(if mode & 0o0040 != 0 { 'r' } else { '-' });
+    s.push(if mode & 0o0020 != 0 { 'w' } else { '-' });
+    s.push(if mode & 0o0010 != 0 { 'x' } else { '-' });
+    s.push(if mode & 0o0004 != 0 { 'r' } else { '-' });
+    s.push(if mode & 0o0002 != 0 { 'w' } else { '-' });
+    s.push(if mode & 0o0001 != 0 { 'x' } else { '-' });
+    s
 }
 
 fn format_bytes(bytes: u64) -> String {
