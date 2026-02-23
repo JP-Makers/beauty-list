@@ -9,8 +9,15 @@ path = "src/main.rs"
 
 [dependencies]
 chrono = "0.4.43"
-clap = { version = "4.5.55", features = ["derive"] }
-owo-colors = "4.2.3"
-strum = { version = "0.27.2", features = ["derive"] }
-strum_macros = "0.27.2"
+clap = { version = "4.5.60", features = ["derive"] }
+owo-colors = "4.3.0"
+strum = { version = "0.28.0", features = ["derive"] }
+strum_macros = "0.28.0"
 tabled = "0.20.0"
+
+[profile.release]
+opt-level = "z"   # Optimize for size ("s" also good)
+lto = true        # Link Time Optimization
+codegen-units = 1 # Better optimization
+panic = "abort"   # Remove panic unwinding
+strip = true      # Strip symbols (Rust 1.70+)
