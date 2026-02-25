@@ -9,10 +9,11 @@ use strum::Display;
 use tabled::settings::object::{Columns, Rows};
 use tabled::settings::{Color, Style};
 use tabled::{Table, Tabled};
+
 #[derive(Debug, Display)]
 enum EntryType {
-    file,
-    dir,
+    File,
+    Dir,
 }
 
 #[derive(Debug, Tabled)]
@@ -44,8 +45,8 @@ fn main() {
 
     let path = cli.path.unwrap_or(PathBuf::from("."));
 
-    if let Ok(does_exist) = fs::exists(&path) {
-        if does_exist {
+    if let Ok(exists) = fs::exists(&path) {
+        if exists {
             let get_files = get_files(&path);
             let mut table = Table::new(&get_files);
             table.with(Style::rounded());
@@ -59,36 +60,49 @@ fn main() {
 
             for (i, entry) in get_files.iter().enumerate() {
                 match entry.e_type {
-                    EntryType::dir => {
+                    EntryType::Dir => {
                         table.modify((i + 1, 1), Color::FG_BRIGHT_BLUE);
                     }
-                    EntryType::file => {
+                    EntryType::File => {
                         table.modify((i + 1, 1), Color::FG_GREEN);
                     }
                 }
             }
             println!("{}", table);
         } else {
-            println!("{}", "Path does not exist".red());
+            eprintln!("{}: {}", "Error".red().bold(), "Path does not exist".red());
+            std::process::exit(1);
         }
     } else {
-        println!("{}", "error reading directory".red());
+        eprintln!("{}: {}", "Error".red().bold(), "searching directory".red());
+        std::process::exit(1);
     }
 }
 
 fn get_files(path: &Path) -> Vec<FileEntry> {
     let mut data = Vec::default();
-    if let Ok(read_dir) = fs::read_dir(path) {
+    if path.is_file() {
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown name")
+            .to_string();
+        map_data(path, file_name, &mut data);
+    } else if let Ok(read_dir) = fs::read_dir(path) {
         for entry in read_dir {
             if let Ok(file) = entry {
-                map_data(file, &mut data);
+                let file_name = file
+                    .file_name()
+                    .into_string()
+                    .unwrap_or("unknown name".into());
+                map_data(&file.path(), file_name, &mut data);
             }
         }
     }
 
     data.sort_by(|a, b| {
-        let a_is_dir = matches!(a.e_type, EntryType::dir);
-        let b_is_dir = matches!(b.e_type, EntryType::dir);
+        let a_is_dir = matches!(a.e_type, EntryType::Dir);
+        let b_is_dir = matches!(b.e_type, EntryType::Dir);
         match (a_is_dir, b_is_dir) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
@@ -103,13 +117,9 @@ fn get_files(path: &Path) -> Vec<FileEntry> {
     data
 }
 
-fn map_data(file: fs::DirEntry, data: &mut Vec<FileEntry>) {
-    if let Ok(meta) = fs::metadata(&file.path()) {
-        let size_str = if meta.is_dir() {
-            format_bytes(meta.len())
-        } else {
-            format_bytes(meta.len())
-        };
+fn map_data(path: &Path, file_name: String, data: &mut Vec<FileEntry>) {
+    if let Ok(meta) = fs::metadata(path) {
+        let size_str = format_bytes(meta.len());
 
         let mod_time = match meta.modified() {
             Ok(time) => {
@@ -118,11 +128,6 @@ fn map_data(file: fs::DirEntry, data: &mut Vec<FileEntry>) {
             }
             Err(_) => "".to_string(),
         };
-
-        let file_name = file
-            .file_name()
-            .into_string()
-            .unwrap_or("unknown name".into());
 
         #[cfg(unix)]
         let (mode_str, octal_str) = {
@@ -142,9 +147,9 @@ fn map_data(file: fs::DirEntry, data: &mut Vec<FileEntry>) {
             no: 0,
             name: file_name,
             e_type: if meta.is_dir() {
-                EntryType::dir
+                EntryType::Dir
             } else {
-                EntryType::file
+                EntryType::File
             },
             len_bytes: size_str,
             mode: mode_str,
